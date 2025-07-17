@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  mistal-ocr:
+    build: .
+    image: mistal-ocr:latest
+    container_name: mistal-ocr
+    ports:
+      - "8000:8000"
+    volumes:
+      # 挂载输入、输出和术语目录
+      - ./input:/app/input
+      - ./ocr_output:/app/ocr_output
+      - ./terminology:/app/terminology
+    env_file:
+      - .env
+    environment:
+      - PYTHONPATH=/app
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - mistal-network
+
+  # 可选：添加Nginx反向代理
+  nginx:
+    image: nginx:alpine
+    container_name: mistal-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+    depends_on:
+      - mistal-ocr
+    restart: unless-stopped
+    networks:
+      - mistal-network
+    profiles:
+      - nginx
+
+networks:
+  mistal-network:
+    driver: bridge
+
+volumes:
+  input_data:
+  output_data:
+  terminology_data:

@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>智能OCR处理器</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <!-- 头部 -->
+        <header class="header">
+            <div class="header-content">
+                <div class="header-icon">
+                    <i class="fas fa-file-text"></i>
+                </div>
+                <div class="header-text">
+                    <h1>智能OCR处理器</h1>
+                    <p>多引擎OCR + AI智能纠错 + 专业Markdown文档输出</p>
+                </div>
+                <div class="header-status">
+                    <div class="status-indicator" id="status-indicator">
+                        <i class="fas fa-circle"></i>
+                        <span id="status-text">检查中...</span>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- 主内容区 -->
+        <main class="main-content">
+            <!-- 左侧面板 -->
+            <div class="left-panel">
+                <!-- 文件上传处理一体化卡片 -->
+                <div class="card">
+                    <div class="card-header">
+                        <i class="fas fa-file-upload"></i>
+                        <h3>PDF文件处理</h3>
+                    </div>
+                    <div class="card-body">
+                        <!-- 上传区域 -->
+                        <div class="upload-area" id="upload-area">
+                            <i class="fas fa-cloud-upload-alt"></i>
+                            <p>拖拽PDF文件到此处或点击选择</p>
+                            <p class="upload-hint">支持最大500MB的PDF文件</p>
+                            <input type="file" id="file-input" accept=".pdf" style="display: none;">
+                            <button class="btn btn-primary" onclick="document.getElementById('file-input').click()">
+                                选择PDF文件
+                            </button>
+                        </div>
+                        
+                        <!-- 上传进度 -->
+                        <div class="upload-progress" id="upload-progress" style="display: none;">
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="upload-progress-fill"></div>
+                            </div>
+                            <span id="upload-progress-text">上传中...</span>
+                        </div>
+                        
+                        <!-- 已上传文件信息 -->
+                        <div class="uploaded-file-info" id="uploaded-file-info" style="display: none;">
+                            <div class="file-card">
+                                <div class="file-icon">
+                                    <i class="fas fa-file-pdf"></i>
+                                </div>
+                                <div class="file-details">
+                                    <div class="file-name" id="current-file-name">--</div>
+                                    <div class="file-meta" id="current-file-meta">--</div>
+                                </div>
+                                <button class="btn btn-secondary btn-sm" onclick="clearCurrentFile()">
+                                    <i class="fas fa-times"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 配置卡片 -->
+                <div class="card">
+                    <div class="card-header">
+                        <i class="fas fa-cog"></i>
+                        <h3>处理配置</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="form-group">
+                            <label for="ocr-service">OCR引擎</label>
+                            <select id="ocr-service" class="form-control">
+                                <option value="">加载中...</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="terminology">专业词典</label>
+                            <select id="terminology" class="form-control">
+                                <option value="">不使用专业词典</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="start-page">起始页</label>
+                                <input type="number" id="start-page" class="form-control" value="1" min="1">
+                            </div>
+                            <div class="form-group">
+                                <label for="end-page">结束页</label>
+                                <input type="number" id="end-page" class="form-control" value="1" min="1">
+                            </div>
+                        </div>
+                        
+                        <div class="page-info" id="page-info">
+                            请先选择PDF文件
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 大文件分割配置卡片 -->
+                <div class="card" id="splitting-options" style="display: none;">
+                    <div class="card-header">
+                        <i class="fas fa-cut"></i>
+                        <h3>大文件分割</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="form-group">
+                            <label>
+                                <input type="checkbox" id="enable-splitting" checked>
+                                启用智能分割处理
+                            </label>
+                        </div>
+                        
+                        <div id="split-info" class="split-info">
+                            <!-- 文件分析信息将显示在这里 -->
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="split-strategy">分割策略</label>
+                            <select id="split-strategy" class="form-control">
+                                <option value="adaptive">自适应分割</option>
+                                <option value="by_pages">按页数分割</option>
+                                <option value="by_size">按大小分割</option>
+                                <option value="by_memory">按内存分割</option>
+                                <option value="intelligent">智能分割</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="max-pages">最大页数</label>
+                                <input type="number" id="max-pages" class="form-control" value="50" min="5" max="200">
+                            </div>
+                            <div class="form-group">
+                                <label for="max-size">最大大小(MB)</label>
+                                <input type="number" id="max-size" class="form-control" value="100" min="10" max="500">
+                            </div>
+                        </div>
+                        
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="max-memory">内存限制(MB)</label>
+                                <input type="number" id="max-memory" class="form-control" value="512" min="256" max="2048">
+                            </div>
+                            <div class="form-group">
+                                <label>
+                                    <input type="checkbox" id="enable-parallel" checked>
+                                    并行处理
+                                </label>
+                                <label>
+                                    <input type="checkbox" id="preserve-structure" checked>
+                                    保持结构
+                                </label>
+                            </div>
+                        </div>
+                        
+                        <div id="split-preview" class="split-preview" style="display: none;">
+                            <h5>分块预览:</h5>
+                            <!-- 分块预览将显示在这里 -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 右侧面板 -->
+            <div class="right-panel">
+                <!-- 控制按钮 -->
+                <div class="control-buttons">
+                    <button class="btn btn-success btn-lg" id="start-btn" onclick="startProcessing()">
+                        <i class="fas fa-play"></i>
+                        开始处理
+                    </button>
+                    <button class="btn btn-danger btn-lg" id="stop-btn" onclick="stopProcessing()" disabled>
+                        <i class="fas fa-stop"></i>
+                        停止处理
+                    </button>
+                </div>
+
+                <!-- 进度卡片 -->
+                <div class="card">
+                    <div class="card-header">
+                        <i class="fas fa-chart-line"></i>
+                        <h3>处理进度</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="progress-info">
+                            <div class="progress-label" id="progress-label">准备就绪</div>
+                            <div class="progress-percentage" id="progress-percentage">0%</div>
+                        </div>
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="progress-fill"></div>
+                        </div>
+                        
+                        <!-- Token统计 -->
+                        <div class="token-stats">
+                            <div class="token-stat">
+                                <div class="token-label">总用量</div>
+                                <div class="token-value total" id="total-tokens">0</div>
+                            </div>
+                            <div class="token-stat">
+                                <div class="token-label">OCR</div>
+                                <div class="token-value ocr" id="ocr-tokens">0</div>
+                            </div>
+                            <div class="token-stat">
+                                <div class="token-label">AI纠错</div>
+                                <div class="token-value gemini" id="gemini-tokens">0</div>
+                            </div>
+                        </div>
+                        
+                        <div class="page-progress" id="page-progress">页面: 0/0</div>
+                        <div class="chunk-progress" id="chunk-progress" style="display: none;">分块: 0/0</div>
+                        
+                        <!-- 分块状态 -->
+                        <div id="chunk-status" class="chunk-status" style="display: none;">
+                            <!-- 分块处理状态将显示在这里 -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 日志卡片 -->
+                <div class="card">
+                    <div class="card-header">
+                        <i class="fas fa-list"></i>
+                        <h3>处理日志</h3>
+                        <button class="btn btn-secondary btn-sm" onclick="clearLog()">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div class="log-container" id="log-container">
+                            <div class="log-message info">
+                                <span class="log-time">[系统]</span>
+                                <span class="log-text">OCR处理器已就绪</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 结果下载卡片 -->
+                <div class="card">
+                    <div class="card-header">
+                        <i class="fas fa-download"></i>
+                        <h3>处理结果</h3>
+                        <button class="btn btn-secondary btn-sm" onclick="refreshResults()">
+                            <i class="fas fa-refresh"></i>
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div class="result-list" id="result-list">
+                            <p class="empty-state">暂无处理结果</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- 模态框 -->
+    <div class="modal" id="error-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>错误信息</h3>
+                <button class="modal-close" onclick="closeModal('error-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p id="error-message"></p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-primary" onclick="closeModal('error-modal')">确定</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
