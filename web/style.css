@@ -419,6 +419,87 @@ body {
     color: var(--warning-color);
 }
 
+/* 数字滚动动画 */
+.token-value {
+    position: relative;
+    overflow: hidden;
+    min-height: 22px;
+    transition: all 0.3s ease;
+}
+
+.token-value.animating {
+    animation: tokenPulse 0.6s ease-in-out;
+}
+
+@keyframes tokenPulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+    100% { transform: scale(1); }
+}
+
+.token-counter {
+    display: inline-block;
+    font-feature-settings: "tnum";
+    font-variant-numeric: tabular-nums;
+}
+
+.token-counter.counting {
+    animation: countUp 0.5s ease-out;
+}
+
+@keyframes countUp {
+    from {
+        transform: translateY(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+/* 进度条增强样式 */
+.progress-bar {
+    position: relative;
+    overflow: hidden;
+}
+
+.progress-fill {
+    position: relative;
+    background: linear-gradient(45deg, 
+        var(--primary-color) 0%, 
+        #4f46e5 50%, 
+        var(--primary-color) 100%);
+    background-size: 200% 100%;
+    animation: progressShine 2s ease-in-out infinite;
+    transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes progressShine {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+.progress-bar::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(90deg, 
+        transparent, 
+        rgba(255, 255, 255, 0.2), 
+        transparent);
+    transform: translateX(-100%);
+    animation: progressSweep 2s ease-in-out infinite;
+}
+
+@keyframes progressSweep {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+}
+
 .page-progress {
     font-size: 12px;
     color: var(--text-secondary);

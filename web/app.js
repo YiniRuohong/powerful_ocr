@@ -252,6 +252,74 @@ class OCRApp {
         return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
     }
     
+    // Token数字滚动动画
+    animateTokenValue(elementId, newValue) {
+        const element = document.getElementById(elementId);
+        const counter = element.querySelector('.token-counter');
+        
+        if (!counter) return;
+        
+        const currentValue = parseInt(counter.textContent.replace(/,/g, '')) || 0;
+        
+        // 如果值没有变化，不执行动画
+        if (currentValue === newValue) return;
+        
+        // 添加动画类
+        element.classList.add('animating');
+        counter.classList.add('counting');
+        
+        // 执行数字滚动动画
+        this.countUpAnimation(counter, currentValue, newValue, 800);
+        
+        // 移除动画类
+        setTimeout(() => {
+            element.classList.remove('animating');
+            counter.classList.remove('counting');
+        }, 800);
+    }
+    
+    // 数字递增动画
+    countUpAnimation(element, start, end, duration) {
+        const startTime = Date.now();
+        const difference = end - start;
+        
+        // 如果差值很小，使用更快的动画
+        if (Math.abs(difference) < 100) {
+            duration = Math.min(duration, 400);
+        }
+        
+        const animate = () => {
+            const elapsed = Date.now() - startTime;
+            const progress = Math.min(elapsed / duration, 1);
+            
+            // 使用缓动函数
+            const easeOut = 1 - Math.pow(1 - progress, 3);
+            const currentValue = Math.floor(start + (difference * easeOut));
+            
+            element.textContent = currentValue.toLocaleString();
+            
+            if (progress < 1) {
+                requestAnimationFrame(animate);
+            } else {
+                element.textContent = end.toLocaleString();
+            }
+        };
+        
+        requestAnimationFrame(animate);
+    }
+    
+    // 重置token统计
+    resetTokenStats() {
+        const tokenElements = ['total-tokens', 'ocr-tokens', 'gemini-tokens'];
+        tokenElements.forEach(id => {
+            const element = document.getElementById(id);
+            const counter = element.querySelector('.token-counter');
+            if (counter) {
+                counter.textContent = '0';
+            }
+        });
+    }
+    
     
     async startProcessing() {
         if (!this.currentFile) {
@@ -292,6 +360,12 @@ class OCRApp {
             const result = await response.json();
             this.currentTaskId = result.task_id;
             
+            // 重置进度和统计
+            this.resetTokenStats();
+            document.getElementById('progress-fill').style.width = '0%';
+            document.getElementById('progress-percentage').textContent = '0%';
+            document.getElementById('progress-label').textContent = '开始处理...';
+            
             this.setProcessingState(true);
             this.startProgressPolling();
             this.addLog('🚀 开始处理文件', 'info');
@@ -323,6 +397,7 @@ class OCRApp {
     }
     
     startProgressPolling() {
+        // 使用更频繁的轮询以获得更实时的token统计
         this.progressInterval = setInterval(async () => {
             if (!this.currentTaskId) return;
             
@@ -337,12 +412,35 @@ class OCRApp {
                     this.setProcessingState(false);
                     this.currentTaskId = null;
                     this.refreshResults();
+                    
+                    // 处理完成后显示最终统计
+                    this.showFinalStats(progress);
                 }
                 
             } catch (error) {
                 console.error('Failed to fetch progress:', error);
             }
-        }, 1000);
+        }, 500); // 更频繁的轮询(500ms)
+    }
+    
+    // 显示最终统计
+    showFinalStats(progress) {
+        const totalTokens = progress.total_tokens || 0;
+        const ocrTokens = progress.ocr_tokens || 0;
+        const geminiTokens = progress.gemini_tokens || 0;
+        
+        let statusMessage = '';
+        if (progress.status === 'completed') {
+            statusMessage = `✅ 处理完成！共消耗 ${totalTokens.toLocaleString()} tokens`;
+        } else if (progress.status === 'failed') {
+            statusMessage = `❌ 处理失败，已消耗 ${totalTokens.toLocaleString()} tokens`;
+        } else if (progress.status === 'stopped') {
+            statusMessage = `⏹️ 处理已停止，已消耗 ${totalTokens.toLocaleString()} tokens`;
+        }
+        
+        if (statusMessage) {
+            this.addLog(statusMessage, progress.status === 'completed' ? 'success' : 'warning');
+        }
     }
     
     stopProgressPolling() {
@@ -353,7 +451,7 @@ class OCRApp {
     }
     
     updateProgress(progress) {
-        // 更新进度条
+        // 更新进度条（带平滑过渡）
         const progressFill = document.getElementById('progress-fill');
         const progressLabel = document.getElementById('progress-label');
         const progressPercentage = document.getElementById('progress-percentage');
@@ -361,23 +459,22 @@ class OCRApp {
         progressFill.style.width = `${progress.progress}%`;
         progressPercentage.textContent = `${Math.round(progress.progress)}%`;
         
-        if (progress.current_file) {
-            progressLabel.textContent = `正在处理: ${progress.current_file}`;
-        }
+        // 更新状态标签
+        this.updateProgressLabel(progress);
         
-        // 更新Token统计
-        document.getElementById('total-tokens').textContent = progress.total_tokens.toLocaleString();
-        document.getElementById('ocr-tokens').textContent = progress.ocr_tokens.toLocaleString();
-        document.getElementById('gemini-tokens').textContent = progress.gemini_tokens.toLocaleString();
+        // 更新Token统计（带动画）
+        this.animateTokenValue('total-tokens', progress.total_tokens || 0);
+        this.animateTokenValue('ocr-tokens', progress.ocr_tokens || 0);
+        this.animateTokenValue('gemini-tokens', progress.gemini_tokens || 0);
         
         // 更新页面进度
         document.getElementById('page-progress').textContent = 
-            `页面: ${progress.current_page}/${progress.total_pages}`;
+            `页面: ${progress.current_page || 0}/${progress.total_pages || 0}`;
         
         // 更新分块进度
         if (progress.total_chunks > 0) {
             document.getElementById('chunk-progress').textContent = 
-                `分块: ${progress.current_chunk}/${progress.total_chunks}`;
+                `分块: ${progress.current_chunk || 0}/${progress.total_chunks}`;
             document.getElementById('chunk-progress').style.display = 'block';
         } else {
             document.getElementById('chunk-progress').style.display = 'none';
@@ -389,6 +486,49 @@ class OCRApp {
         // 更新日志
         if (progress.log_messages && progress.log_messages.length > 0) {
             this.updateLogFromProgress(progress.log_messages);
+        }
+        
+        // 根据状态更新进度条样式
+        this.updateProgressBarStyle(progress);
+    }
+    
+    // 更新进度标签
+    updateProgressLabel(progress) {
+        const progressLabel = document.getElementById('progress-label');
+        
+        if (progress.status === 'processing') {
+            if (progress.current_file) {
+                progressLabel.textContent = `正在处理: ${progress.current_file}`;
+            } else if (progress.current_page) {
+                progressLabel.textContent = `正在处理第 ${progress.current_page} 页`;
+            } else {
+                progressLabel.textContent = '正在处理...';
+            }
+        } else if (progress.status === 'completed') {
+            progressLabel.textContent = '✅ 处理完成';
+        } else if (progress.status === 'failed') {
+            progressLabel.textContent = '❌ 处理失败';
+        } else if (progress.status === 'stopped') {
+            progressLabel.textContent = '⏹️ 处理已停止';
+        } else {
+            progressLabel.textContent = '准备就绪';
+        }
+    }
+    
+    // 更新进度条样式
+    updateProgressBarStyle(progress) {
+        const progressFill = document.getElementById('progress-fill');
+        
+        // 根据状态改变进度条颜色
+        if (progress.status === 'completed') {
+            progressFill.style.background = 'linear-gradient(45deg, #10b981, #34d399)';
+        } else if (progress.status === 'failed') {
+            progressFill.style.background = 'linear-gradient(45deg, #ef4444, #f87171)';
+        } else if (progress.status === 'stopped') {
+            progressFill.style.background = 'linear-gradient(45deg, #f59e0b, #fbbf24)';
+        } else {
+            // 恢复默认样式
+            progressFill.style.background = '';
         }
     }
     
