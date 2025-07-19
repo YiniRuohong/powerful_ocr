@@ -782,3 +782,64 @@ window.addEventListener('click', (event) => {
         event.target.style.display = 'none';
     }
 });
+
+// 缓存管理函数
+async function refreshCacheStats() {
+    try {
+        const response = await fetch('/api/cache/stats');
+        const stats = await response.json();
+        
+        document.getElementById('cache-entries').textContent = stats.total_entries;
+        document.getElementById('cache-size').textContent = `${stats.total_size_mb.toFixed(2)} MB`;
+        document.getElementById('cache-access').textContent = stats.total_access_count;
+        
+        app.addLogMessage('📊 缓存统计已刷新', 'info');
+    } catch (error) {
+        console.error('Failed to refresh cache stats:', error);
+        app.showError('刷新缓存统计失败');
+    }
+}
+
+async function cleanupCache() {
+    if (!confirm('确定要清理缓存吗？这将删除过期和损坏的缓存。')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/cache/cleanup', { method: 'POST' });
+        const result = await response.json();
+        
+        app.addLogMessage(`🧹 ${result.message}`, 'success');
+        app.addLogMessage(`删除 ${result.stats.total_removed} 个缓存项，释放 ${(result.stats.bytes_freed/1024/1024).toFixed(2)} MB`, 'info');
+        
+        // 刷新统计
+        refreshCacheStats();
+    } catch (error) {
+        console.error('Failed to cleanup cache:', error);
+        app.showError('清理缓存失败');
+    }
+}
+
+async function clearAllCache() {
+    if (!confirm('确定要清空所有缓存吗？这个操作不可恢复！')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/cache/clear', { method: 'POST' });
+        const result = await response.json();
+        
+        app.addLogMessage(`🗑️ ${result.message}`, 'warning');
+        
+        // 刷新统计
+        refreshCacheStats();
+    } catch (error) {
+        console.error('Failed to clear cache:', error);
+        app.showError('清空缓存失败');
+    }
+}
+
+// 页面加载时刷新缓存统计
+document.addEventListener('DOMContentLoaded', () => {
+    setTimeout(refreshCacheStats, 1000); // 延迟1秒执行，确保应用初始化完成
+});

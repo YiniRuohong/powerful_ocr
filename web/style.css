@@ -896,3 +896,62 @@ label input[type="checkbox"] {
         width: 95%;
     }
 }
+
+/* 缓存管理样式 */
+.cache-stats {
+    margin-bottom: 16px;
+}
+
+.stat-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.stat-item:last-child {
+    border-bottom: none;
+}
+
+.stat-label {
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+
+.stat-value {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.cache-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.cache-actions .btn {
+    flex: 1;
+    min-width: 80px;
+}
+
+/* 恢复状态样式 */
+.recovery-status {
+    margin-top: 12px;
+    padding: 12px;
+    background: var(--hover-color);
+    border-radius: 8px;
+    font-size: 14px;
+}
+
+.recovery-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+}
+
+.recovery-progress {
+    font-size: 12px;
+    color: var(--text-secondary);
+}

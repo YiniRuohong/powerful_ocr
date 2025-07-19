@@ -18,12 +18,17 @@ import tempfile
 from pathlib import Path
 from typing import List, Tuple, Dict, Any, Callable
 from abc import ABC, abstractmethod
+from dataclasses import asdict
 
 from dotenv import load_dotenv
 from openai import OpenAI
 from pdf2image import convert_from_path, exceptions as pdf_exc
 from tqdm import tqdm
 import pypdf
+
+# 导入缓存和重试管理器
+from cache_manager import get_cache_manager, CacheManager
+from retry_manager import create_retry_manager, RetryManager
 
 # ---------- 1. Dependency checking ----------
 def check_dependencies():
@@ -499,6 +504,10 @@ class OCRServiceManager:
 # 初始化OCR服务管理器
 ocr_manager = OCRServiceManager()
 
+# 初始化缓存和重试管理器
+cache_manager = get_cache_manager()
+retry_manager = create_retry_manager(cache_manager)
+
 # ---------- 5. Initialize Gemini client ----------
 gemini_client = OpenAI(
     api_key=GEMINI_API_KEY,
@@ -904,13 +913,132 @@ def correct_text_with_gemini(ocr_text: str, terminology_terms: str = "") -> tupl
         return ocr_text, {}
 
 
-def process_single_file(pdf_path: Path, start_page: int, end_page: int, terminology_terms: str = "", ocr_service_key: str = "dashscope", preprocessing_config = None) -> str:
-    """处理单个PDF文件的OCR和纠错"""
+def process_single_file(file_path: Path, start_page: int, end_page: int, terminology_terms: str = "", ocr_service_key: str = "dashscope", preprocessing_config = None) -> str:
+    """处理单个文件的OCR和纠错（带缓存支持）"""
     
     # 获取选择的OCR服务
     ocr_service = ocr_manager.get_service(ocr_service_key)
     
-    print(f"\n🔄 开始处理文件: {pdf_path.name}")
+    print(f"\n🔄 开始处理文件: {file_path.name}")
+    print(f"📄 页数范围: {start_page}-{end_page}")
+    print(f"🔧 OCR服务: {ocr_service.get_description()}")
+    
+    # 显示预处理配置
+    if preprocessing_config:
+        print(f"🎨 图像预处理: {preprocessing_config.mode.value} 模式")
+    else:
+        print("🎨 图像预处理: 已禁用")
+    
+    # 构建配置字典用于缓存
+    config = {
+        "preprocessing": asdict(preprocessing_config) if preprocessing_config else None,
+        "ocr_service": ocr_service_key,
+        "start_page": start_page,
+        "end_page": end_page
+    }
+    
+    # 检查缓存
+    page_range = (start_page, end_page)
+    cached_result = cache_manager.get_cache(
+        file_path, config, ocr_service_key, terminology_terms, page_range
+    )
+    
+    if cached_result:
+        print(f"💾 使用缓存结果: {file_path.name}")
+        # 仍然保存到输出目录
+        _save_results_to_files(file_path, cached_result, start_page, end_page)
+        return cached_result
+    
+    # 使用重试机制处理文件
+    try:
+        def process_function(page_num, config, progress_callback=None):
+            """单页处理函数"""
+            return _process_single_page(
+                file_path, page_num, terminology_terms, 
+                ocr_service, preprocessing_config, progress_callback
+            )
+        
+        print(f"🚀 开始处理 (支持断点续传): {file_path.name}")
+        result = retry_manager.process_with_recovery(
+            file_path, config, ocr_service_key, terminology_terms, 
+            page_range, process_function
+        )
+        
+        # 保存结果文件
+        _save_results_to_files(file_path, result, start_page, end_page)
+        return result
+        
+    except Exception as e:
+        print(f"❌ 处理失败: {e}")
+        raise
+
+
+def _process_single_page(file_path: Path, page_num: int, terminology_terms: str, 
+                        ocr_service, preprocessing_config, progress_callback=None) -> str:
+    """处理单页（供重试机制调用）"""
+    try:
+        # OCR处理（带预处理）
+        enable_preprocessing = preprocessing_config is not None
+        page_idx = page_num - 1  # 转换为0基索引
+        
+        imgs = get_images_for_page(str(file_path), page_idx, enable_preprocessing, preprocessing_config)
+        if not imgs:
+            raise Exception(f"第 {page_num} 页转换图像失败")
+
+        data_uri = pil_to_data_uri(imgs[0])
+
+        # 使用OCR服务处理图像
+        if progress_callback:
+            progress_callback('log', f"🔍 使用 {ocr_service.get_description()} 识别第 {page_num} 页...")
+        
+        # 带重试的OCR调用
+        ocr_text, ocr_usage = retry_manager.execute_with_retry(
+            ocr_service.process_image,
+            data_uri,
+            service_key=f"ocr_{ocr_service.name}",
+            context=f"第 {page_num} 页OCR识别"
+        )
+
+        if progress_callback and ocr_usage:
+            progress_callback('ocr_token', ocr_usage)
+
+        # 带重试的Gemini纠错
+        if progress_callback:
+            progress_callback('log', f"🔧 使用Gemini纠错第 {page_num} 页...")
+        
+        corrected_text, gemini_usage = retry_manager.execute_with_retry(
+            correct_text_with_gemini,
+            ocr_text,
+            terminology_terms,
+            service_key="gemini",
+            context=f"第 {page_num} 页文本纠错"
+        )
+        
+        if progress_callback and gemini_usage:
+            progress_callback('gemini_token', gemini_usage)
+
+        # 保存单页结果
+        out_dir = Path("ocr_output")
+        out_dir.mkdir(exist_ok=True)
+        page_file = out_dir / f"{file_path.stem}_page_{page_num}.md"
+        page_file.write_text(corrected_text, encoding="utf-8")
+
+        return corrected_text
+        
+    except Exception as e:
+        if progress_callback:
+            progress_callback('log', f"❌ 第 {page_num} 页处理失败: {e}", tag="error")
+        raise
+
+
+# 保留原有的函数作为兼容性备份
+def process_single_file_legacy(file_path: Path, start_page: int, end_page: int, terminology_terms: str = "", ocr_service_key: str = "dashscope", preprocessing_config = None) -> str:
+    """处理单个文件的OCR和纠错（原版本，不带缓存）"""
+    
+    # 获取选择的OCR服务
+    ocr_service = ocr_manager.get_service(ocr_service_key)
+    
+    print(f"\n🔄 开始处理文件: {file_path.name}")
     print(f"📄 页数范围: {start_page}-{end_page}")
     print(f"🔧 OCR服务: {ocr_service.get_description()}")
     
@@ -1034,136 +1162,71 @@ def process_single_file(pdf_path: Path, start_page: int, end_page: int, terminol
     return combined_text
 
 
-def process_single_file_with_progress_callback(pdf_path: Path, start_page: int, end_page: int, terminology_terms: str = "", ocr_service_key: str = "dashscope", progress_callback: Callable = None, preprocessing_config = None):
+def process_single_file_with_progress_callback(file_path: Path, start_page: int, end_page: int, terminology_terms: str = "", ocr_service_key: str = "dashscope", progress_callback: Callable = None, preprocessing_config = None):
     """
-    带进度回调的单文件处理函数
+    带进度回调的单文件处理函数（支持缓存和重试）
     
     参数:
-        pdf_path: PDF文件路径
+        file_path: 文件路径
         start_page: 起始页 (1-based)
         end_page: 结束页 (1-based)
         terminology_terms: 专有名词列表
         ocr_service_key: OCR服务键名
         progress_callback: 进度回调函数，接收(msg_type, data, **kwargs)
+        preprocessing_config: 预处理配置
     
     返回: 合并后的文本内容
     """
+    # 构建配置字典用于缓存
+    config = {
+        "preprocessing": asdict(preprocessing_config) if preprocessing_config else None,
+        "ocr_service": ocr_service_key,
+        "start_page": start_page,
+        "end_page": end_page
+    }
+    
+    # 检查缓存
+    page_range = (start_page, end_page)
+    cached_result = cache_manager.get_cache(
+        file_path, config, ocr_service_key, terminology_terms, page_range
+    )
+    
+    if cached_result:
+        if progress_callback:
+            progress_callback('log', f"💾 使用缓存结果: {file_path.name}")
+        _save_results_to_files(file_path, cached_result, start_page, end_page)
+        return cached_result
+    
     # 获取OCR服务
     ocr_service = ocr_manager.get_service(ocr_service_key)
     if not ocr_service:
         raise ValueError(f"OCR服务 '{ocr_service_key}' 不可用")
     
-    # 输出目录
-    out_dir = Path("ocr_output")
-    out_dir.mkdir(exist_ok=True)
-    
-    all_pages_text = []
-    pages = list(range(start_page - 1, end_page))  # 转换为0-based索引
-    total_pages = len(pages)
-    
-    # Token消耗统计 - 分别统计OCR和纠错的消耗
-    ocr_input_tokens = 0
-    ocr_output_tokens = 0
-    ocr_total_tokens = 0
-    
-    gemini_input_tokens = 0
-    gemini_output_tokens = 0
-    gemini_total_tokens = 0
-    
-    total_tokens = 0
-    
-    if progress_callback:
-        progress_callback('log', f"开始处理文件: {pdf_path.name}")
-        progress_callback('log', f"页面范围: {start_page}-{end_page} (共{total_pages}页)")
-        progress_callback('log', f"OCR服务: {ocr_service.get_description()}")
-    
-    for i, page_idx in enumerate(pages):
-        try:
-            # 通知页面开始处理
-            if progress_callback:
-                progress_callback('page_start', (page_idx, total_pages))
-                progress_callback('log', f"🔍 处理第 {page_idx + 1} 页...")
-            
-            # OCR处理（带预处理）
-            enable_preprocessing = preprocessing_config is not None
-            imgs = get_images_for_page(str(pdf_path), page_idx, enable_preprocessing, preprocessing_config)
-            if not imgs:
-                if progress_callback:
-                    progress_callback('log', f"⚠️  第 {page_idx + 1} 页转换图像失败，已跳过", tag="error")
-                continue
-
-            data_uri = pil_to_data_uri(imgs[0])
-
-            # 使用选择的OCR服务处理图像 - 使用流式处理
-            if progress_callback:
-                progress_callback('log', f"🔍 使用 {ocr_service.get_description()} 识别第 {page_idx + 1} 页...")
-            
-            # 检查是否支持流式处理
-            if hasattr(ocr_service, 'process_image_streaming') and ocr_service.supports_streaming:
-                ocr_text, ocr_usage = ocr_service.process_image_streaming(data_uri, progress_callback)
-            else:
-                ocr_text, ocr_usage = ocr_service.process_image(data_uri)
-
-            # 更新OCR token统计
-            if ocr_usage:
-                input_tokens = ocr_usage.get('input_tokens', 0)
-                output_tokens = ocr_usage.get('output_tokens', 0)
-                page_total_tokens = ocr_usage.get('total_tokens', input_tokens + output_tokens)
-                
-                ocr_input_tokens += input_tokens
-                ocr_output_tokens += output_tokens
-                ocr_total_tokens += page_total_tokens
-                total_tokens += page_total_tokens
-                
-                if progress_callback:
-                    progress_callback('ocr_token', ocr_usage)
-
-            # Gemini纠错
-            if progress_callback:
-                progress_callback('log', f"🔧 使用Gemini纠错第 {page_idx + 1} 页...")
-            
-            corrected_text, gemini_usage = correct_text_with_gemini_streaming(ocr_text, terminology_terms, progress_callback)
-            
-            # 更新Gemini token统计
-            if gemini_usage:
-                gemini_page_input = gemini_usage.get('input_tokens', 0)
-                gemini_page_output = gemini_usage.get('output_tokens', 0)
-                gemini_page_total = gemini_usage.get('total_tokens', gemini_page_input + gemini_page_output)
-                
-                gemini_input_tokens += gemini_page_input
-                gemini_output_tokens += gemini_page_output
-                gemini_total_tokens += gemini_page_total
-                total_tokens += gemini_page_total
-                
-                if progress_callback:
-                    progress_callback('gemini_token', gemini_usage)
-            
-            # 保存单页结果
-            page_file = out_dir / f"{pdf_path.stem}_page_{page_idx + 1}.md"
-            page_file.write_text(corrected_text, encoding="utf-8")
-            
-            all_pages_text.append(corrected_text)
-            
-            # 通知页面处理完成
-            if progress_callback:
-                progress_callback('page_complete', page_idx)
-            
-        except Exception as e:
-            if progress_callback:
-                progress_callback('log', f"❌ 第 {page_idx + 1} 页处理失败: {e}", tag="error")
-            continue
-    
-    # 拼接所有页面
-    combined_text = "\n\n".join(all_pages_text)
-    combined_file = out_dir / f"{pdf_path.stem}_combined.md"
-    combined_file.write_text(combined_text, encoding="utf-8")
-    
-    if progress_callback:
-        progress_callback('log', f"✅ 文件 {pdf_path.name} 处理完成", tag="success")
-        progress_callback('log', f"📁 合并文件保存至: {combined_file}")
-        progress_callback('log', f"💰 总Token消耗: {total_tokens:,}", tag="token")
-    
-    return combined_text
+    # 使用重试机制处理文件
+    try:
+        def process_function(page_num, config, progress_cb=None):
+            """单页处理函数"""
+            return _process_single_page(
+                file_path, page_num, terminology_terms, 
+                ocr_service, preprocessing_config, progress_cb or progress_callback
+            )
+        
+        if progress_callback:
+            progress_callback('log', f"🚀 开始处理 (支持断点续传): {file_path.name}")
+        
+        result = retry_manager.process_with_recovery(
+            file_path, config, ocr_service_key, terminology_terms, 
+            page_range, process_function, progress_callback
+        )
+        
+        # 保存结果文件
+        _save_results_to_files(file_path, result, start_page, end_page)
+        return result
+        
+    except Exception as e:
+        if progress_callback:
+            progress_callback('log', f"❌ 处理失败: {e}", tag="error")
+        raise
 
 
 def correct_text_with_gemini_streaming(text: str, terminology_terms: str = "", progress_callback: Callable = None):
@@ -1289,6 +1352,22 @@ def correct_text_with_gemini_streaming(text: str, terminology_terms: str = "", p
             
             # 所有服务都失败，返回原文
             return text, {'input_tokens': 0, 'output_tokens': 0, 'total_tokens': 0}
+
+
+def _save_results_to_files(file_path: Path, combined_text: str, start_page: int, end_page: int):
+    """保存结果到文件"""
+    try:
+        out_dir = Path("ocr_output")
+        out_dir.mkdir(exist_ok=True)
+        
+        # 保存合并文件
+        combined_file = out_dir / f"{file_path.stem}_combined.md"
+        combined_file.write_text(combined_text, encoding="utf-8")
+        
+        print(f"📁 结果保存至: {combined_file}")
+        
+    except Exception as e:
+        print(f"⚠️ 保存结果文件失败: {e}")
 
 
 # ---------- 6. Main program ----------

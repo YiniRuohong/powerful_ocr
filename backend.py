@@ -25,7 +25,7 @@ import uvicorn
 # 导入原有OCR功能
 from main import (
     get_supported_files, get_terminology_files, load_terminology,
-    get_file_page_count, ocr_manager
+    get_file_page_count, ocr_manager, cache_manager, retry_manager
 )
 from file_splitter import PDFSplitter, SplitConfig, SplitStrategy, ChunkInfo, create_splitter_config
 
@@ -525,6 +525,65 @@ async def list_results():
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"获取结果列表失败: {str(e)}")
+
+
+@app.get("/api/cache/stats")
+async def get_cache_stats():
+    """获取缓存统计信息"""
+    try:
+        stats = cache_manager.get_stats()
+        return stats
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取缓存统计失败: {str(e)}")
+
+
+@app.post("/api/cache/cleanup")
+async def cleanup_cache():
+    """清理缓存"""
+    try:
+        stats = cache_manager.cleanup()
+        return {
+            "message": "缓存清理完成",
+            "stats": stats
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"缓存清理失败: {str(e)}")
+
+
+@app.post("/api/cache/clear")
+async def clear_cache():
+    """清空所有缓存"""
+    try:
+        success = cache_manager.clear_all()
+        if success:
+            return {"message": "所有缓存已清空"}
+        else:
+            raise HTTPException(status_code=500, detail="清空缓存失败")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"清空缓存失败: {str(e)}")
+
+
+@app.get("/api/recovery/status")
+async def get_recovery_status():
+    """获取恢复状态"""
+    try:
+        status = retry_manager.get_recovery_status()
+        return status
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取恢复状态失败: {str(e)}")
+
+
+@app.post("/api/recovery/cleanup")
+async def cleanup_recovery_states():
+    """清理恢复状态"""
+    try:
+        removed_count = retry_manager.cleanup_old_states(48)  # 清理48小时前的状态
+        return {
+            "message": f"已清理 {removed_count} 个旧状态文件",
+            "removed_count": removed_count
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"清理恢复状态失败: {str(e)}")
 
 
 def add_log_message(task_id: str, message: str, level: str = "info"):

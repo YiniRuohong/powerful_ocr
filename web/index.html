@@ -285,6 +285,43 @@
                     </div>
                 </div>
 
+                <!-- 缓存管理卡片 -->
+                <div class="card">
+                    <div class="card-header">
+                        <i class="fas fa-database"></i>
+                        <h3>缓存管理</h3>
+                        <button class="btn btn-secondary btn-sm" onclick="refreshCacheStats()">
+                            <i class="fas fa-refresh"></i>
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div class="cache-stats" id="cache-stats">
+                            <div class="stat-item">
+                                <span class="stat-label">缓存条目:</span>
+                                <span class="stat-value" id="cache-entries">0</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">缓存大小:</span>
+                                <span class="stat-value" id="cache-size">0 MB</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">访问次数:</span>
+                                <span class="stat-value" id="cache-access">0</span>
+                            </div>
+                        </div>
+                        <div class="cache-actions">
+                            <button class="btn btn-warning btn-sm" onclick="cleanupCache()">
+                                <i class="fas fa-broom"></i>
+                                清理缓存
+                            </button>
+                            <button class="btn btn-danger btn-sm" onclick="clearAllCache()">
+                                <i class="fas fa-trash"></i>
+                                清空缓存
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- 结果下载卡片 -->
                 <div class="card">
                     <div class="card-header">
