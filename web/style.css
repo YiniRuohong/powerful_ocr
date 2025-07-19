@@ -824,6 +824,46 @@ label input[type="checkbox"] {
     margin-right: 8px;
 }
 
+/* 图像预处理样式 */
+.form-help {
+    font-size: 12px;
+    color: var(--success-color);
+    margin-left: 8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.preprocessing-info {
+    margin-top: 8px;
+    padding: 8px 12px;
+    background: #F0F8FF;
+    border-radius: 6px;
+    border-left: 3px solid var(--primary-color);
+}
+
+.preprocessing-info small {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-secondary);
+}
+
+.preprocessing-info i {
+    color: var(--primary-color);
+}
+
+/* 预处理模式组样式 */
+#preprocessing-mode-group {
+    transition: opacity 0.3s ease, max-height 0.3s ease;
+    overflow: hidden;
+}
+
+#preprocessing-mode-group.disabled {
+    opacity: 0.5;
+    pointer-events: none;
+}
+
 /* 响应式设计 */
 @media (max-width: 768px) {
     .container {

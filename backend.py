@@ -79,6 +79,9 @@ class ProcessRequest(BaseModel):
     # 新增分割配置
     enable_splitting: bool = True
     split_config: Optional[SplitConfigRequest] = None
+    # 新增预处理配置
+    enable_preprocessing: bool = True
+    preprocessing_mode: str = "document"
 
 
 class UploadResponse(BaseModel):
@@ -351,6 +354,12 @@ async def start_processing(request: ProcessRequest, background_tasks: Background
                 "preserve_structure": request.split_config.preserve_structure
             }
         
+        # 创建预处理配置
+        preprocessing_config = None
+        if request.enable_preprocessing:
+            from image_preprocessor import create_preprocessor_config
+            preprocessing_config = create_preprocessor_config(mode=request.preprocessing_mode)
+        
         # 创建处理任务
         task = ProcessingTask(
             task_id=task_id,
@@ -392,7 +401,8 @@ async def start_processing(request: ProcessRequest, background_tasks: Background
             request.end_page,
             terminology_terms,
             request.ocr_service,
-            request.enable_splitting
+            request.enable_splitting,
+            preprocessing_config
         )
         
         return {"task_id": task_id, "message": "处理任务已启动"}
@@ -576,7 +586,7 @@ def create_progress_callback(task_id: str):
     return callback
 
 
-async def process_file_background(task_id: str, filename: str, start_page: int, end_page: int, terminology_terms: str, ocr_service: str, enable_splitting: bool = True):
+async def process_file_background(task_id: str, filename: str, start_page: int, end_page: int, terminology_terms: str, ocr_service: str, enable_splitting: bool = True, preprocessing_config = None):
     """后台处理单个文件 - 支持分块处理"""
     try:
         task = tasks[task_id]
@@ -597,9 +607,9 @@ async def process_file_background(task_id: str, filename: str, start_page: int, 
         
         # 检查是否需要分割处理
         if enable_splitting and task.split_config:
-            await process_with_splitting(task_id, pdf_path, start_page, end_page, terminology_terms, ocr_service, progress_callback)
+            await process_with_splitting(task_id, pdf_path, start_page, end_page, terminology_terms, ocr_service, progress_callback, preprocessing_config)
         else:
-            await process_without_splitting(task_id, pdf_path, start_page, end_page, terminology_terms, ocr_service, progress_callback)
+            await process_without_splitting(task_id, pdf_path, start_page, end_page, terminology_terms, ocr_service, progress_callback, preprocessing_config)
         
     except Exception as e:
         task = tasks[task_id]
@@ -609,7 +619,7 @@ async def process_file_background(task_id: str, filename: str, start_page: int, 
         add_log_message(task_id, f"❌ 处理失败: {str(e)}", "error")
 
 
-async def process_without_splitting(task_id: str, pdf_path: Path, start_page: int, end_page: int, terminology_terms: str, ocr_service: str, progress_callback):
+async def process_without_splitting(task_id: str, pdf_path: Path, start_page: int, end_page: int, terminology_terms: str, ocr_service: str, progress_callback, preprocessing_config = None):
     """不分割的传统处理方式"""
     task = tasks[task_id]
     task.status = "processing"
@@ -633,7 +643,7 @@ async def process_without_splitting(task_id: str, pdf_path: Path, start_page: in
         result = process_single_file_with_progress_callback(
             pdf_path, start_page, end_page,
             terminology_terms, ocr_service,
-            progress_callback
+            progress_callback, preprocessing_config
         )
         add_log_message(task_id, f"✅ {pdf_path.name} 处理完成", "success")
         
@@ -650,7 +660,7 @@ async def process_without_splitting(task_id: str, pdf_path: Path, start_page: in
     task.end_time = datetime.now()
 
 
-async def process_with_splitting(task_id: str, pdf_path: Path, start_page: int, end_page: int, terminology_terms: str, ocr_service: str, progress_callback):
+async def process_with_splitting(task_id: str, pdf_path: Path, start_page: int, end_page: int, terminology_terms: str, ocr_service: str, progress_callback, preprocessing_config = None):
     """分块处理方式"""
     task = tasks[task_id]
     
@@ -718,14 +728,14 @@ async def process_with_splitting(task_id: str, pdf_path: Path, start_page: int, 
         
         # 处理分块
         task.status = "processing"
-        await process_chunks(task_id, task.chunks, terminology_terms, ocr_service, progress_callback, splitter)
+        await process_chunks(task_id, task.chunks, terminology_terms, ocr_service, progress_callback, splitter, preprocessing_config)
         
     except Exception as e:
         add_log_message(task_id, f"❌ 分块处理失败: {str(e)}", "error")
         raise
 
 
-async def process_chunks(task_id: str, chunks: List[ChunkInfo], terminology_terms: str, ocr_service: str, progress_callback, splitter: PDFSplitter):
+async def process_chunks(task_id: str, chunks: List[ChunkInfo], terminology_terms: str, ocr_service: str, progress_callback, splitter: PDFSplitter, preprocessing_config = None):
     """处理所有分块"""
     task = tasks[task_id]
     
@@ -758,7 +768,7 @@ async def process_chunks(task_id: str, chunks: List[ChunkInfo], terminology_term
                 chunk.end_page if chunk.file_path != chunks[0].file_path or len(chunks) == 1 else chunk.page_count,
                 terminology_terms, 
                 ocr_service,
-                progress_callback
+                progress_callback, preprocessing_config
             )
             
             chunk.status = "completed"

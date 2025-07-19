@@ -100,6 +100,10 @@ class OCRApp {
         // 分割配置事件
         document.getElementById('enable-splitting').addEventListener('change', this.updateSplitPreview.bind(this));
         document.getElementById('split-strategy').addEventListener('change', this.updateSplitPreview.bind(this));
+        
+        // 预处理配置事件
+        document.getElementById('enable-preprocessing').addEventListener('change', this.updatePreprocessingOptions.bind(this));
+        document.getElementById('preprocessing-mode').addEventListener('change', this.updatePreprocessingInfo.bind(this));
     }
     
     async handleFileSelect(event) {
@@ -337,12 +341,18 @@ class OCRApp {
             return;
         }
         
+        // 获取预处理配置
+        const enablePreprocessing = document.getElementById('enable-preprocessing').checked;
+        const preprocessingMode = document.getElementById('preprocessing-mode').value;
+        
         const request = {
             filename: this.currentFile.filename,
             start_page: startPage,
             end_page: endPage,
             ocr_service: ocrService,
-            terminology: terminology
+            terminology: terminology,
+            enable_preprocessing: enablePreprocessing,
+            preprocessing_mode: preprocessingMode
         };
         
         try {
@@ -675,6 +685,54 @@ class OCRApp {
     showError(message) {
         document.getElementById('error-message').textContent = message;
         document.getElementById('error-modal').style.display = 'block';
+    }
+    
+    // 更新预处理选项
+    updatePreprocessingOptions() {
+        const enablePreprocessing = document.getElementById('enable-preprocessing').checked;
+        const preprocessingModeGroup = document.getElementById('preprocessing-mode-group');
+        
+        if (enablePreprocessing) {
+            preprocessingModeGroup.classList.remove('disabled');
+        } else {
+            preprocessingModeGroup.classList.add('disabled');
+        }
+        
+        this.updatePreprocessingInfo();
+    }
+    
+    // 更新预处理信息
+    updatePreprocessingInfo() {
+        const enablePreprocessing = document.getElementById('enable-preprocessing').checked;
+        const mode = document.getElementById('preprocessing-mode').value;
+        const infoElement = document.getElementById('preprocessing-info');
+        
+        if (!enablePreprocessing) {
+            infoElement.innerHTML = `
+                <small class="text-muted">
+                    <i class="fas fa-info-circle"></i>
+                    预处理已禁用，将使用原始图像
+                </small>
+            `;
+            return;
+        }
+        
+        const modeDescriptions = {
+            'none': '不进行任何处理，保持原始图像质量',
+            'basic': '轻量级处理：降噪 + 锐化，适合一般文档',
+            'document': '文档优化：降噪 + 锐化 + 对比度调整 + 倾斜矫正 + 二值化',
+            'photo': '照片优化：适合手机拍照，包含透视矫正和噪声处理',
+            'aggressive': '激进处理：最大化OCR效果，适合低质量扫描件'
+        };
+        
+        const description = modeDescriptions[mode] || '未知模式';
+        
+        infoElement.innerHTML = `
+            <small class="text-muted">
+                <i class="fas fa-info-circle"></i>
+                ${description}
+            </small>
+        `;
     }
     
     closeModal(modalId) {

@@ -589,6 +589,45 @@ def load_terminology(terminology_file: Path | None) -> str:
         return ""
 
 
+def select_preprocessing_mode():
+    """交互式选择图像预处理模式"""
+    from image_preprocessor import PreprocessingMode, create_preprocessor_config
+    
+    print("\n🎨 选择图像预处理模式：")
+    modes = [
+        (PreprocessingMode.NONE, "不处理", "保持原始图像，适合高质量扫描件"),
+        (PreprocessingMode.BASIC, "基础处理", "轻量级降噪和锐化，适合一般文档"),
+        (PreprocessingMode.DOCUMENT, "文档优化", "专为扫描文档优化，包含倾斜矫正和二值化"),
+        (PreprocessingMode.PHOTO, "照片优化", "适合手机拍照的文档，包含透视矫正"),
+        (PreprocessingMode.AGGRESSIVE, "激进处理", "最大化OCR效果，适合低质量图像")
+    ]
+    
+    for i, (mode, name, desc) in enumerate(modes, 1):
+        print(f"  {i}. {name} - {desc}")
+    
+    while True:
+        try:
+            choice = input(f"\n请选择预处理模式 (1-{len(modes)}，默认为3): ").strip()
+            
+            if not choice:  # 默认选择文档优化
+                choice_num = 3
+            else:
+                choice_num = int(choice)
+            
+            if 1 <= choice_num <= len(modes):
+                selected_mode = modes[choice_num - 1][0]
+                selected_name = modes[choice_num - 1][1]
+                print(f"✅ 已选择预处理模式: {selected_name}")
+                
+                # 创建配置
+                config = create_preprocessor_config(mode=selected_mode.value)
+                return config
+            else:
+                print("❌ 无效选择，请重新输入")
+        except ValueError:
+            print("❌ 请输入有效数字")
+
+
 def get_pdf_files() -> List[Path]:
     """获取input文件夹中的所有PDF文件"""
     input_dir = Path("input")
@@ -679,15 +718,43 @@ def pil_to_data_uri(img) -> str:
     return f"data:image/jpeg;base64,{b64}"
 
 
-def get_images_for_page(pdf: str, page_zero_idx: int):
-    """Convert one PDF page (0‑based) to a list of PIL images."""
+def get_images_for_page(pdf: str, page_zero_idx: int, enable_preprocessing: bool = True, preprocessing_config = None):
+    """Convert one PDF page (0‑based) to a list of PIL images with optional preprocessing."""
     try:
-        return convert_from_path(
+        # 转换PDF页面为图像
+        images = convert_from_path(
             pdf,
             dpi=300,
             first_page=page_zero_idx + 1,
             last_page=page_zero_idx + 1,
         )
+        
+        # 如果启用了预处理，对每张图像进行预处理
+        if enable_preprocessing and images:
+            from image_preprocessor import ImagePreprocessor, PreprocessingConfig
+            
+            # 使用默认配置或传入的配置
+            if preprocessing_config is None:
+                from image_preprocessor import create_preprocessor_config
+                preprocessing_config = create_preprocessor_config(mode="document")
+            
+            preprocessor = ImagePreprocessor(preprocessing_config)
+            
+            processed_images = []
+            for img in images:
+                processed_img, stats = preprocessor.preprocess_image(img, preprocessing_config)
+                processed_images.append(processed_img)
+                
+                # 可选：打印预处理统计信息
+                if stats.get("operations_applied"):
+                    print(f"  📈 图像预处理: {', '.join(stats['operations_applied'])}")
+                    if stats.get("quality_score"):
+                        print(f"  🎯 质量评分: {stats['quality_score']:.1f}/100")
+            
+            return processed_images
+        
+        return images
+        
     except pdf_exc.PDFInfoNotInstalledError as e:
         raise RuntimeError(
             "pdf2image 需要依赖 poppler，请先安装。"
@@ -768,7 +835,7 @@ def correct_text_with_gemini(ocr_text: str, terminology_terms: str = "") -> tupl
         return ocr_text, {}
 
 
-def process_single_file(pdf_path: Path, start_page: int, end_page: int, terminology_terms: str = "", ocr_service_key: str = "dashscope") -> str:
+def process_single_file(pdf_path: Path, start_page: int, end_page: int, terminology_terms: str = "", ocr_service_key: str = "dashscope", preprocessing_config = None) -> str:
     """处理单个PDF文件的OCR和纠错"""
     
     # 获取选择的OCR服务
@@ -777,6 +844,12 @@ def process_single_file(pdf_path: Path, start_page: int, end_page: int, terminol
     print(f"\n🔄 开始处理文件: {pdf_path.name}")
     print(f"📄 页数范围: {start_page}-{end_page}")
     print(f"🔧 OCR服务: {ocr_service.get_description()}")
+    
+    # 显示预处理配置
+    if preprocessing_config:
+        print(f"🎨 图像预处理: {preprocessing_config.mode.value} 模式")
+    else:
+        print("🎨 图像预处理: 已禁用")
     
     # 创建输出目录
     out_dir = Path("ocr_output")
@@ -809,8 +882,9 @@ def process_single_file(pdf_path: Path, start_page: int, end_page: int, terminol
                 f"[Token: {total_tokens:,}]"
             )
             
-            # OCR处理
-            imgs = get_images_for_page(str(pdf_path), page_idx)
+            # OCR处理（带预处理）
+            enable_preprocessing = preprocessing_config is not None
+            imgs = get_images_for_page(str(pdf_path), page_idx, enable_preprocessing, preprocessing_config)
             if not imgs:
                 tqdm.write(f"⚠️  第 {page_idx + 1} 页转换图像失败，已跳过")
                 progress_bar.update(1)
@@ -891,7 +965,7 @@ def process_single_file(pdf_path: Path, start_page: int, end_page: int, terminol
     return combined_text
 
 
-def process_single_file_with_progress_callback(pdf_path: Path, start_page: int, end_page: int, terminology_terms: str = "", ocr_service_key: str = "dashscope", progress_callback: Callable = None):
+def process_single_file_with_progress_callback(pdf_path: Path, start_page: int, end_page: int, terminology_terms: str = "", ocr_service_key: str = "dashscope", progress_callback: Callable = None, preprocessing_config = None):
     """
     带进度回调的单文件处理函数
     
@@ -941,8 +1015,9 @@ def process_single_file_with_progress_callback(pdf_path: Path, start_page: int, 
                 progress_callback('page_start', (page_idx, total_pages))
                 progress_callback('log', f"🔍 处理第 {page_idx + 1} 页...")
             
-            # OCR处理
-            imgs = get_images_for_page(str(pdf_path), page_idx)
+            # OCR处理（带预处理）
+            enable_preprocessing = preprocessing_config is not None
+            imgs = get_images_for_page(str(pdf_path), page_idx, enable_preprocessing, preprocessing_config)
             if not imgs:
                 if progress_callback:
                     progress_callback('log', f"⚠️  第 {page_idx + 1} 页转换图像失败，已跳过", tag="error")
@@ -1151,12 +1226,15 @@ def correct_text_with_gemini_streaming(text: str, terminology_terms: str = "", p
 def main():
     """主程序"""
     print("🔥 欢迎使用增强版OCR程序")
-    print("✨ 功能: 多OCR服务支持 + Gemini纠错 + 结构识别 + Markdown输出")
+    print("✨ 功能: 多OCR服务支持 + 图像预处理 + Gemini纠错 + 结构识别 + Markdown输出")
     
     # 选择OCR服务
     selected_ocr_service = select_ocr_service()
     if not selected_ocr_service:
         return
+    
+    # 选择图像预处理模式
+    preprocessing_config = select_preprocessing_mode()
     
     # 获取并选择专有名词文件
     terminology_files = get_terminology_files()
@@ -1185,7 +1263,7 @@ def main():
         
         # 处理文件
         try:
-            process_single_file(pdf_path, start_page, end_page, terminology_terms, selected_ocr_service)
+            process_single_file(pdf_path, start_page, end_page, terminology_terms, selected_ocr_service, preprocessing_config)
         except Exception as e:
             print(f"❌ 处理文件 {pdf_path.name} 时发生错误: {e}")
             continue

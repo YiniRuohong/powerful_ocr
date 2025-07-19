@@ -97,6 +97,31 @@
                             </select>
                         </div>
                         
+                        <div class="form-group">
+                            <label>
+                                <input type="checkbox" id="enable-preprocessing" checked>
+                                启用图像预处理优化
+                            </label>
+                            <span class="form-help">🎨 提升OCR识别准确率</span>
+                        </div>
+                        
+                        <div class="form-group" id="preprocessing-mode-group">
+                            <label for="preprocessing-mode">预处理模式</label>
+                            <select id="preprocessing-mode" class="form-control">
+                                <option value="none">不处理 - 保持原始图像</option>
+                                <option value="basic">基础处理 - 轻量级优化</option>
+                                <option value="document" selected>文档优化 - 适合扫描文档</option>
+                                <option value="photo">照片优化 - 适合手机拍照</option>
+                                <option value="aggressive">激进处理 - 最大化OCR效果</option>
+                            </select>
+                            <div class="preprocessing-info" id="preprocessing-info">
+                                <small class="text-muted">
+                                    <i class="fas fa-info-circle"></i>
+                                    包含降噪、锐化、对比度调整、倾斜矫正等功能
+                                </small>
+                            </div>
+                        </div>
+                        
                         <div class="form-row">
                             <div class="form-group">
                                 <label for="start-page">起始页</label>
