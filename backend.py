@@ -134,7 +134,7 @@ app.mount("/static", StaticFiles(directory="web"), name="static")
 @app.get("/")
 async def read_root():
     """根路径 - 返回前端页面"""
-    return FileResponse("web/index.html")
+    return FileResponse("web/index_v2.html")
 
 
 @app.get("/api/status", response_model=SystemStatus)
