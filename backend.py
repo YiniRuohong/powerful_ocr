@@ -24,8 +24,8 @@ import uvicorn
 
 # 导入原有OCR功能
 from main import (
-    get_pdf_files, get_terminology_files, load_terminology,
-    get_pdf_page_count, ocr_manager
+    get_supported_files, get_terminology_files, load_terminology,
+    get_file_page_count, ocr_manager
 )
 from file_splitter import PDFSplitter, SplitConfig, SplitStrategy, ChunkInfo, create_splitter_config
 
@@ -103,7 +103,7 @@ class SystemStatus(BaseModel):
     """系统状态模型"""
     available_ocr_services: Dict[str, str]
     terminology_files: List[str]
-    pdf_files: List[FileInfo]
+    pdf_files: List[FileInfo]  # 保持兼容性，实际包含所有支持格式
 
 
 # 全局状态管理
@@ -152,30 +152,30 @@ async def get_system_status():
         terminology_files = get_terminology_files()
         terminology_list = [f.name for f in terminology_files]
         
-        # 获取PDF文件信息
-        pdf_files = get_pdf_files()
-        pdf_info_list = []
+        # 获取支持的文件信息
+        input_files = get_supported_files()
+        file_info_list = []
         
-        for pdf_file in pdf_files:
+        for input_file in input_files:
             try:
-                pages = get_pdf_page_count(pdf_file)
-                size = pdf_file.stat().st_size
-                upload_time = datetime.fromtimestamp(pdf_file.stat().st_mtime).isoformat()
+                pages = get_file_page_count(input_file)
+                size = input_file.stat().st_size
+                upload_time = datetime.fromtimestamp(input_file.stat().st_mtime).isoformat()
                 
-                pdf_info_list.append(FileInfo(
-                    name=pdf_file.name,
+                file_info_list.append(FileInfo(
+                    name=input_file.name,
                     size=size,
                     pages=pages,
                     upload_time=upload_time
                 ))
             except Exception as e:
-                print(f"Error reading PDF info for {pdf_file}: {e}")
+                print(f"Error reading file info for {input_file}: {e}")
                 continue
         
         return SystemStatus(
             available_ocr_services=ocr_services,
             terminology_files=terminology_list,
-            pdf_files=pdf_info_list
+            pdf_files=file_info_list
         )
     
     except Exception as e:
@@ -184,9 +184,17 @@ async def get_system_status():
 
 @app.post("/api/upload", response_model=UploadResponse)
 async def upload_file(file: UploadFile = File(...)):
-    """上传PDF文件 - 支持大文件"""
-    if not file.filename.endswith('.pdf'):
-        raise HTTPException(status_code=400, detail="只支持PDF文件")
+    """上传支持的文件格式 - 支持大文件"""
+    from format_processor import FormatProcessor
+    
+    # 检查文件格式
+    processor = FormatProcessor()
+    if not processor.is_supported(file.filename):
+        supported_exts = processor.get_supported_extensions()
+        raise HTTPException(
+            status_code=400, 
+            detail=f"不支持的文件格式。支持的格式: {', '.join(supported_exts)}"
+        )
     
     # 检查文件大小 (限制500MB)
     MAX_FILE_SIZE = 500 * 1024 * 1024  # 500MB
@@ -220,16 +228,16 @@ async def upload_file(file: UploadFile = File(...)):
                 
                 f.write(chunk)
         
-        # 验证PDF文件完整性
+        # 验证文件完整性
         try:
-            from main import get_pdf_page_count
-            pages = get_pdf_page_count(file_path)
+            from main import get_file_page_count
+            pages = get_file_page_count(file_path)
             if pages <= 0:
                 file_path.unlink()
-                raise HTTPException(status_code=400, detail="PDF文件损坏或为空")
+                raise HTTPException(status_code=400, detail="文件损坏或为空")
         except Exception as e:
             file_path.unlink()
-            raise HTTPException(status_code=400, detail="PDF文件无效")
+            raise HTTPException(status_code=400, detail="文件无效或格式不支持")
         
         return UploadResponse(
             filename=file_path.name,  # 返回带时间戳的文件名
@@ -253,7 +261,7 @@ async def get_file_info(filename: str):
         if not file_path.exists():
             raise HTTPException(status_code=404, detail="文件不存在")
         
-        pages = get_pdf_page_count(file_path)
+        pages = get_file_page_count(file_path)
         size = file_path.stat().st_size
         upload_time = datetime.fromtimestamp(file_path.stat().st_mtime).isoformat()
         

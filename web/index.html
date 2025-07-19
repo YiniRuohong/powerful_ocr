@@ -36,17 +36,18 @@
                 <div class="card">
                     <div class="card-header">
                         <i class="fas fa-file-upload"></i>
-                        <h3>PDF文件处理</h3>
+                        <h3>多格式文件处理</h3>
                     </div>
                     <div class="card-body">
                         <!-- 上传区域 -->
                         <div class="upload-area" id="upload-area">
                             <i class="fas fa-cloud-upload-alt"></i>
-                            <p>拖拽PDF文件到此处或点击选择</p>
-                            <p class="upload-hint">支持最大500MB的PDF文件</p>
-                            <input type="file" id="file-input" accept=".pdf" style="display: none;">
+                            <p>拖拽文件到此处或点击选择</p>
+                            <p class="upload-hint">支持PDF、图片(JPG/PNG/TIFF/BMP/WEBP/GIF)、Word文档(DOCX/DOC)、PowerPoint(PPTX/PPT)</p>
+                            <p class="upload-hint">文件大小限制：500MB</p>
+                            <input type="file" id="file-input" accept=".pdf,.jpg,.jpeg,.png,.tiff,.tif,.bmp,.webp,.gif,.docx,.doc,.pptx,.ppt" style="display: none;">
                             <button class="btn btn-primary" onclick="document.getElementById('file-input').click()">
-                                选择PDF文件
+                                选择文件
                             </button>
                         </div>
                         

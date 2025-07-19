@@ -628,64 +628,116 @@ def select_preprocessing_mode():
             print("❌ 请输入有效数字")
 
 
-def get_pdf_files() -> List[Path]:
-    """获取input文件夹中的所有PDF文件"""
+def get_supported_files() -> List[Path]:
+    """获取input文件夹中的所有支持的文件"""
+    from format_processor import FormatProcessor
+    
     input_dir = Path("input")
     if not input_dir.exists():
         input_dir.mkdir()
-        print("📁 已创建 input 文件夹，请将PDF文件放入其中")
+        print("📁 已创建 input 文件夹，请将支持的文件放入其中")
+        print("📄 支持格式：PDF、图片(JPG/PNG/TIFF/BMP/WEBP/GIF)、Word文档(DOCX/DOC)、PowerPoint(PPTX/PPT)")
         return []
     
-    pdf_files = list(input_dir.glob("*.pdf"))
-    return pdf_files
+    processor = FormatProcessor()
+    supported_files = []
+    
+    # 搜索所有支持的文件
+    for file_path in input_dir.iterdir():
+        if file_path.is_file() and processor.is_supported(file_path):
+            supported_files.append(file_path)
+    
+    return supported_files
 
 
-def select_pdf_file(pdf_files: List[Path]) -> List[Path]:
-    """交互式选择PDF文件"""
-    if not pdf_files:
-        print("❌ input 文件夹中没有找到PDF文件")
+def select_input_file(input_files: List[Path]) -> List[Path]:
+    """交互式选择输入文件"""
+    if not input_files:
+        print("❌ input 文件夹中没有找到支持的文件")
+        print("📄 支持格式：PDF、图片(JPG/PNG/TIFF/BMP/WEBP/GIF)、Word文档(DOCX/DOC)、PowerPoint(PPTX/PPT)")
         return []
     
-    print("\n📋 找到以下PDF文件：")
-    for i, pdf_file in enumerate(pdf_files, 1):
-        print(f"  {i}. {pdf_file.name}")
+    # 按格式分组显示
+    from format_processor import FormatProcessor
+    processor = FormatProcessor()
     
-    print(f"  {len(pdf_files) + 1}. 全部文件")
+    format_groups = {}
+    for file_path in input_files:
+        file_format = processor.detect_format(file_path)
+        format_name = processor.get_format_info(file_format)['name']
+        if format_name not in format_groups:
+            format_groups[format_name] = []
+        format_groups[format_name].append(file_path)
+    
+    print(f"\n📋 找到以下支持的文件 (共{len(input_files)}个)：")
+    file_index = 1
+    index_to_file = {}
+    
+    for format_name, files in format_groups.items():
+        print(f"\n  📁 {format_name} ({len(files)}个):")
+        for file_path in files:
+            print(f"    {file_index}. {file_path.name}")
+            index_to_file[file_index] = file_path
+            file_index += 1
+    
+    print(f"\n  {file_index}. 全部文件")
     
     while True:
         try:
-            choice = input(f"\n请选择要处理的文件 (1-{len(pdf_files) + 1}): ").strip()
+            choice = input(f"\n请选择要处理的文件 (1-{file_index}): ").strip()
             choice_num = int(choice)
             
-            if 1 <= choice_num <= len(pdf_files):
-                return [pdf_files[choice_num - 1]]
-            elif choice_num == len(pdf_files) + 1:
-                return pdf_files
+            if 1 <= choice_num <= len(input_files):
+                return [index_to_file[choice_num]]
+            elif choice_num == file_index:
+                return input_files
             else:
                 print("❌ 无效选择，请重新输入")
         except ValueError:
             print("❌ 请输入有效数字")
 
 
-def get_pdf_page_count(pdf_path: Path) -> int:
-    """获取PDF文件的页数"""
+def get_file_page_count(file_path: Path) -> int:
+    """获取文件的页数（支持多种格式）"""
     try:
-        with open(pdf_path, 'rb') as file:
-            reader = pypdf.PdfReader(file)
-            return len(reader.pages)
+        from format_processor import FormatProcessor
+        processor = FormatProcessor()
+        
+        file_format = processor.detect_format(file_path)
+        
+        if file_format.value == "pdf":
+            # PDF文件使用原有方法
+            with open(file_path, 'rb') as file:
+                reader = pypdf.PdfReader(file)
+                return len(reader.pages)
+        else:
+            # 其他格式使用format_processor处理
+            processed_file = processor.process_file(file_path)
+            return processed_file.page_count
+            
     except Exception as e:
-        print(f"❌ 无法读取PDF文件 {pdf_path}: {e}")
+        print(f"❌ 无法读取文件 {file_path}: {e}")
         return 0
 
 
-def select_page_range(pdf_path: Path) -> Tuple[int, int]:
-    """交互式选择页数范围"""
-    total_pages = get_pdf_page_count(pdf_path)
+def select_page_range(file_path: Path) -> Tuple[int, int]:
+    """交互式选择页数范围（支持多种文件格式）"""
+    total_pages = get_file_page_count(file_path)
     
     if total_pages == 0:
         return 1, 1
     
-    print(f"\n📄 PDF文件 '{pdf_path.name}' 共有 {total_pages} 页")
+    # 获取文件格式信息
+    from format_processor import FormatProcessor
+    processor = FormatProcessor()
+    file_format = processor.detect_format(file_path)
+    format_info = processor.get_format_info(file_format)
+    
+    if total_pages == 1:
+        print(f"\n📄 {format_info['name']} '{file_path.name}' 共有 1 页")
+        return 1, 1
+    else:
+        print(f"\n📄 {format_info['name']} '{file_path.name}' 共有 {total_pages} 页")
     
     while True:
         try:
@@ -718,16 +770,31 @@ def pil_to_data_uri(img) -> str:
     return f"data:image/jpeg;base64,{b64}"
 
 
-def get_images_for_page(pdf: str, page_zero_idx: int, enable_preprocessing: bool = True, preprocessing_config = None):
-    """Convert one PDF page (0‑based) to a list of PIL images with optional preprocessing."""
+def get_images_for_page(file_path: str, page_zero_idx: int, enable_preprocessing: bool = True, preprocessing_config = None):
+    """Convert one file page (0‑based) to a list of PIL images with optional preprocessing. Supports multiple formats."""
     try:
-        # 转换PDF页面为图像
-        images = convert_from_path(
-            pdf,
-            dpi=300,
-            first_page=page_zero_idx + 1,
-            last_page=page_zero_idx + 1,
-        )
+        from format_processor import FormatProcessor
+        
+        file_path_obj = Path(file_path)
+        processor = FormatProcessor()
+        file_format = processor.detect_format(file_path_obj)
+        
+        if file_format.value == "pdf":
+            # PDF文件使用原有方法
+            images = convert_from_path(
+                file_path,
+                dpi=300,
+                first_page=page_zero_idx + 1,
+                last_page=page_zero_idx + 1,
+            )
+        else:
+            # 其他格式使用format_processor处理
+            processed_file = processor.process_file(file_path_obj)
+            if 0 <= page_zero_idx < len(processed_file.images):
+                images = [processed_file.images[page_zero_idx]]
+            else:
+                print(f"⚠️  页面索引 {page_zero_idx} 超出范围，文件共有 {len(processed_file.images)} 页")
+                return []
         
         # 如果启用了预处理，对每张图像进行预处理
         if enable_preprocessing and images:
@@ -760,6 +827,8 @@ def get_images_for_page(pdf: str, page_zero_idx: int, enable_preprocessing: bool
             "pdf2image 需要依赖 poppler，请先安装。"
             "macOS: brew install poppler,  Linux: sudo apt install poppler-utils"
         ) from e
+    except Exception as e:
+        raise RuntimeError(f"文件处理失败: {e}") from e
 
 
 def correct_text_with_gemini(ocr_text: str, terminology_terms: str = "") -> tuple[str, dict]:
@@ -1246,26 +1315,26 @@ def main():
     else:
         print("📝 未使用专有名词文件")
     
-    # 获取PDF文件列表
-    pdf_files = get_pdf_files()
-    if not pdf_files:
+    # 获取支持的文件列表
+    input_files = get_supported_files()
+    if not input_files:
         return
     
     # 选择要处理的文件
-    selected_files = select_pdf_file(pdf_files)
+    selected_files = select_input_file(input_files)
     if not selected_files:
         return
     
     # 处理每个选中的文件
-    for pdf_path in selected_files:
+    for file_path in selected_files:
         # 选择页数范围
-        start_page, end_page = select_page_range(pdf_path)
+        start_page, end_page = select_page_range(file_path)
         
         # 处理文件
         try:
-            process_single_file(pdf_path, start_page, end_page, terminology_terms, selected_ocr_service, preprocessing_config)
+            process_single_file(file_path, start_page, end_page, terminology_terms, selected_ocr_service, preprocessing_config)
         except Exception as e:
-            print(f"❌ 处理文件 {pdf_path.name} 时发生错误: {e}")
+            print(f"❌ 处理文件 {file_path.name} 时发生错误: {e}")
             continue
     
     print("\n🎉 全部处理完成！")
